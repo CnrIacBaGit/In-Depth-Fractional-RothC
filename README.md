@@ -1,7 +1,7 @@
 # In-Depth-Fractional-RothC
 Solver for in-depth fractional-order RothC-based SOC dynamics model
 
-Vsevolod Bohaienko
+Vsevolod Bohaienko,
 Institute for Applied Mathematics (IAC), CNR, Bari, Italy. 
 Mail: v.bohaienko@ba.iac.cnr.it
 
