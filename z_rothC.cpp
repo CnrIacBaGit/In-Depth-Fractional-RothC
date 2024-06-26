@@ -8,7 +8,7 @@
 const double HtoPmult=9.8;
 
 int N=50;  // number of nodes
-int testing_mode=0; // testing with constructed solution (1), C equation without advection (2)
+int testing_mode=0; // testing with constructed solution (1), C equation without advection (2), no flux for C at the bottom (3)
 int debug_level=0;
 int zoutstep=1;
 // linear solver (TFQMR)
@@ -27,7 +27,10 @@ double *soil_lambda, *soil_Ct;
 // diffusive parameters
 double *soil_D[4];
 int vgm_nlayers; // number of layers
-
+// other parameters
+double soc_inputs_divisor=1.0; // divisor for SOC inputs
+double summing_depth=1.0; // depth in which sum of respiration and SOC content is calculated
+int boundary_v=2; // 1 - first order approx, 2 - second order approx
 ///////////////////////////////////////
 ////////// basic solver class /////////
 ///////////////////////////////////////
@@ -440,6 +443,7 @@ eloop1:;
 	    }
 		// change tau and recalc if needed
 		if (fix_tau==0)
+		if (max_tau!=ls_min_tau)
 		if (n==ls_max_iter)
 		{
 		     if (tau<ls_min_tau)
@@ -470,6 +474,7 @@ eloop1:;
 		// increase tau if needed and increase T
 		int ret=0;
 		if (fix_tau==0)
+		if (max_tau!=ls_min_tau)
 		if (n<ls_max_iter*ls_percent)
 			if (tau<max_tau)
 			{
@@ -588,6 +593,7 @@ restart:
 		ls_max_iter/=2.0;
 		goto restart;
 	    }
+	    if (max_tau!=ls_min_tau)
 	    if (iter>=ls_max_iter) // decrease step
 	    {
 		 if (tau<ls_min_tau)
@@ -642,6 +648,7 @@ restart:
 	{
 	    while ((T-tau)<(eT-ls_min_tau))
 	    {
+		if (max_tau!=ls_min_tau)
 		if (T+tau>eT)
 		{
 			    T-=tau;
@@ -934,12 +941,53 @@ public:
 	{
 		for (int i=1;i<N;i++)
 		    b_V[i]=pr_K[i]*(((b_U[i+1]-b_U[i-1])/(2.0*dL))-1.0);
-		b_V[0]=pr_K[0]*(((b_U[1]-b_U[0])/dL)-1);
-		b_V[N]=pr_K[N]*(((b_U[N]-b_U[N-1])/dL)-1);
+		// quadratic approximation
+		double d0[3]={2*dL*dL,dL*dL,2*dL*dL};
+		if (boundary_v==2)
+		{
+		    double a=(b_U[0]/d0[0])-(b_U[1]/d0[1])+(b_U[2]/d0[2]);
+		    double b=-(b_U[0]*3*dL/d0[0])+(b_U[1]*2*dL/d0[1])-(b_U[2]*dL/d0[2]);
+		    double c=(b_U[0]*2*dL*dL/d0[0]);
+		    double v1=a*dL*dL-b*dL+c;
+		    b_V[0]=pr_K[0]*(((b_U[1]-v1)/(2*dL))-1);
+		}
+		else
+		    b_V[0]=pr_K[0]*(((b_U[1]-b_U[0])/dL)-1);
+		// quadratic approximation
+		double d[3]={(N-2)*dL*(N-2)*dL-(N-2)*dL*(N-1)*dL+N*dL*dL,-(N-1)*dL*(N-1)*dL+(N-2)*dL*(N-1)*dL+N*dL*dL,N*dL*N*dL+(N-2)*dL*(N-1)*dL-N*dL*((N-2)*dL+(N-1)*dL)};
+		if (boundary_v==2)
+		{
+		    double a=(b_U[N-2]/d[0])-(b_U[N-1]/d[1])+(b_U[N]/d[2]);
+		    double b=-(b_U[N-2]*(N*dL+(N-1)*dL)/d[0])+(b_U[N-1]*(N*dL+(N-2)*dL)/d[1])-(b_U[N]*((N-1)*dL+(N-2)*dL)/d[2]);
+		    double c=(b_U[N-2]*N*dL*(N-1)*dL/d[0])-(b_U[N-1]*N*dL*(N-2)*dL/d[1])+(b_U[N]*(N-1)*dL*(N-2)*dL/d[2]);
+		    double v1=a*(N+1)*dL*(N+1)*dL+b*(N+1)*dL+c;
+		    b_V[N]=pr_K[N]*(((v1-b_U[N-1])/(2.0*dL))-1);
+		}
+		else
+		    b_V[N]=pr_K[N]*(((b_U[N]-b_U[N-1])/dL)-1);
 		for (int i=1;i<N;i++)
 		    b_Vd[i]=(b_V[i+1]-b_V[i-1])/(2.0*dL);
-		b_Vd[0]=(b_V[1]-b_V[0])/dL;
-		b_Vd[N]=(b_V[N]-b_V[N-1])/dL;
+		if (boundary_v==2)
+		{
+		    double a=(b_V[0]/d0[0])-(b_V[1]/d0[1])+(b_V[2]/d0[2]);
+		    double b=-(b_V[0]*3*dL/d0[0])+(b_V[1]*2*dL/d0[1])-(b_V[2]*dL/d0[2]);
+		    double c=(b_V[0]*2*dL*dL/d0[0]);
+		    double v1=a*dL*dL-b*dL+c;
+		    b_Vd[0]=(b_V[1]-v1)/(2.0*dL);
+		}
+		else
+		    b_Vd[0]=(b_V[1]-b_V[0])/dL;
+		// quadratic approximation
+		if (boundary_v==2)
+		{
+		    double a=(b_V[N-2]/d[0])-(b_V[N-1]/d[1])+(b_V[N]/d[2]);
+		    double b=-(b_V[N-2]*(N*dL+(N-1)*dL)/d[0])+(b_V[N-1]*(N*dL+(N-2)*dL)/d[1])-(b_V[N]*((N-1)*dL+(N-2)*dL)/d[2]);
+		    double c=(b_V[N-2]*N*dL*(N-1)*dL/d[0])-(b_V[N-1]*N*dL*(N-2)*dL/d[1])+(b_V[N]*(N-1)*dL*(N-2)*dL/d[2]);
+		    double v1=a*(N+1)*dL*(N+1)*dL+b*(N+1)*dL+c;
+		    b_Vd[N]=(v1-b_V[N-1])/(2.0*dL);
+		}
+		else
+		    b_Vd[N]=(b_V[N]-b_V[N-1])/dL;
 
 		if (testing_mode==2) // no advection
 		    for (int i=0;i<=N;i++)
@@ -1268,6 +1316,66 @@ public:
 		}
 	    }
 	}
+	double vN1(double Vm2,double Vm1,double Vm0)
+	{
+		double d[3]={(N-2)*dL*(N-2)*dL-(N-2)*dL*(N-1)*dL+N*dL*dL,-(N-1)*dL*(N-1)*dL+(N-2)*dL*(N-1)*dL+N*dL*dL,N*dL*N*dL+(N-2)*dL*(N-1)*dL-N*dL*((N-2)*dL+(N-1)*dL)};
+		double a=(Vm2/d[0])-(Vm1/d[1])+(Vm0/d[2]);
+		double b=-(Vm2*(N*dL+(N-1)*dL)/d[0])+(Vm1*(N*dL+(N-2)*dL)/d[1])-(Vm0*((N-1)*dL+(N-2)*dL)/d[2]);
+		double c=(Vm2*N*dL*(N-1)*dL/d[0])-(Vm1*N*dL*(N-2)*dL/d[1])+(Vm0*(N-1)*dL*(N-2)*dL/d[2]);
+		return a*(N+1)*dL*(N+1)*dL+b*(N+1)*dL+c;
+	}
+	// save fluxes for the balance check
+	void save_fluxes()
+	{
+	    if (compound_id==3)
+	    if (Hs->pr_w)
+	    {
+		double r1=respiration(1,0);
+		double r2=respiration(0,0);
+		double nflux=0;
+		int sum_i=int(summing_depth/dL);
+		double socn=b_U[sum_i];
+		for (int j=0;j<4;j++)
+		    if (j!=compound_id)
+			socn+=Css[j]->b_U[sum_i];
+		if (sum_i!=N)
+		{ 
+		    nflux=pr_soil_D[compound_id][sum_i]*(b_U[sum_i+1]-b_U[sum_i-1])/(2.0*dL);
+		    for (int j=0;j<4;j++)
+			if (j!=compound_id)
+			    nflux+=Css[j]->pr_soil_D[j][sum_i]*(Css[j]->b_U[sum_i+1]-Css[j]->b_U[sum_i-1])/(2.0*dL);
+		}
+		if (sum_i==N)
+		{
+			if (boundary_v==1)
+			{
+				nflux=pr_soil_D[compound_id][sum_i]*(b_U[sum_i]-b_U[sum_i-1])/dL;
+				for (int j=0;j<4;j++)
+				    if (j!=compound_id)
+					nflux+=Css[j]->pr_soil_D[j][sum_i]*(Css[j]->b_U[sum_i]-Css[j]->b_U[sum_i-1])/dL;
+			}
+			else
+			{
+				nflux=pr_soil_D[compound_id][sum_i]*(vN1(b_U[N-2],b_U[N-1],b_U[N])-b_U[sum_i-1])/(2*dL);
+				for (int j=0;j<4;j++)
+				    if (j!=compound_id)
+					nflux+=Css[j]->pr_soil_D[j][sum_i]*(vN1(Css[j]->b_U[N-2],Css[j]->b_U[N-1],Css[j]->b_U[N])-Css[j]->b_U[sum_i-1])/(2*dL);
+			}
+		}
+		double in_soc=pr_SoC*(1-inputs_divisor);
+		for (int ii=0;ii<=sum_i;ii++)
+			in_soc+=pr_SoC*inputs_divisor*(exp(-ii*dL*inputs_exponent)-exp(-(ii+1)*dL*inputs_exponent))/
+				(1-exp(-inputs_exponent*L)); // exponental decay of inputs with depth
+		if (fabs(T-fTs[fTs.size()-1])>fr_eps)
+		{
+		    Is.push_back(in_soc/pr_corr);
+		    R0s.push_back(r2/pr_corr);
+		    R1s.push_back(r1/pr_corr);
+		    Os.push_back((-nflux+Hs->b_V[sum_i]*socn)/pr_corr);
+		    fTs.push_back(T);
+		}
+	    }
+	}
 	// corrector for dimensions for current T
 	double corrector()
 	{
@@ -1301,7 +1409,7 @@ public:
 				kb=1.0-(1.0-fanox)*(Hs->wetness(0,-Hs->testing_f(i*dL,T))-w10)/(Hs->pr_vgm_s1s[i]-w10);
 		}
 		double kc=pr_Kc;
-		return k[compound_id]*ka*kb*kc;
+		return ka*kb*kc;
 	}
 	// out=rho*A*in for current T
 	void Amult(double in[4],double out[4],int i,int testing=0)
@@ -1312,7 +1420,7 @@ public:
 	    out[3]=beta*(k[0]*in[0]+k[1]*in[1]+k[2]*in[2])+(beta-1.0)*k[3]*in[3];
 	    double r=rho(i,testing);
 	    for (int j=0;j<4;j++)
-		out[j]*=(r/pr_corr)*(k[j]/k[compound_id]);
+		out[j]*=(r/pr_corr);
 	}
 	// if CO2==1 - for CO2, if 0 - for CH4 (in C/s)
 	double respiration(int CO2,int fout=0)
@@ -1332,13 +1440,19 @@ public:
 		rch4=0;
 		if (!isfinite(r)) r=0.0;
 		if (Hs->pr_w[i]<Hs->pr_vgm_s1s[i])
-		    r1+=r;
+		{
+		    if (i*dL<=summing_depth)
+		        r1+=r;
+		}
 		else
 		{
 		    rch4=(1.0-ox)*exp(-ox_tau*i*dL)*r;
 		    r-=rch4;
-		    r2+=rch4;
-		    r1+=r;
+		    if (i*dL<=summing_depth)
+		    {
+			r2+=rch4;
+			r1+=r;
+		    }
 		}
 		if ((fout)&&((i%zoutstep)==0))
 		{
@@ -1366,7 +1480,7 @@ public:
 	// sets current SOC input and Kc
 	void precalc_values()
 	{
-		pr_SoC=linear_from_pair(SoCT,SoCF,nSoC);
+		pr_SoC=linear_from_pair(SoCT,SoCF,nSoC)/soc_inputs_divisor;
 		pr_Kc=linear_from_pair(KcT,KcF,nKc);
 		pr_corr=corrector();
 		if (T0==1e6) // calculate average yearly temperature by monthly averaging of input data
@@ -1438,8 +1552,8 @@ public:
 		// SoC inputs
 		double input_mult[4]={_gamma,1.0-_gamma,0,0};
 		if (testing_mode!=1)
-			ret+=pr_SoC*input_mult[compound_id]*inputs_divisor*0.5*(exp(-(ii-1)*dL*inputs_exponent)+exp(-ii*dL*inputs_exponent))/
-				(((1/inputs_exponent)-exp(-inputs_exponent*L)/inputs_exponent)*pr_corr); // exponental decay of inputs with depth
+			ret+=pr_SoC*input_mult[compound_id]*inputs_divisor*(exp(-ii*dL*inputs_exponent)-exp(-(ii+1)*dL*inputs_exponent))/
+				(1-exp(-inputs_exponent*L))/dL; // exponental decay of inputs with depth
 		// SoC transpiration
 		double in[4],out[4];
 		in[compound_id]=pickard_prev[ii];
@@ -1498,6 +1612,7 @@ public:
 		    if (q!=1.0)
 		    if (Ts[Ts.size()-1]!=T-tau)
 			save_to_storage();
+		    save_fluxes();
 		    precalc_values();
 		    if (pr_A==NULL) pr_A=new double[N+2];
 		    if (pr_B==NULL) pr_B=new double[N+2];
@@ -1518,7 +1633,7 @@ public:
 			{
 				double input_mult[4]={_gamma,1.0-_gamma,0,0};
 				RP[0]=(Rp(0,b_U,pickard_prevU)-pr_A[0]*(2*dL*(1.0/(pr_soil_D[compound_id][0]/pr_corr))*
-					    pr_SoC*input_mult[compound_id]*(1.0-inputs_divisor)))
+					    (pr_SoC/pr_corr)*input_mult[compound_id]*(1.0-inputs_divisor)))
 					/(pr_R[0]-pr_A[0]*(2*dL*Hs->b_V[0]/pr_corr)/(pr_soil_D[compound_id][0]/pr_corr));
 			}
 			if (testing_mode==1)
@@ -1617,20 +1732,18 @@ public:
 			fprintf(ch4_out,"t(days) %g ch4_respiration: ",(T-tau)/86400.0);
 		    }
 		    for (int i=0;i<N+1;i+=zoutstep)
-		        fprintf(rho_out,"%g ",rho(i)/k[compound_id]);
+		        fprintf(rho_out,"%g ",rho(i));
 		    fprintf(rho_out,"\n");
 		    double r1=respiration(1,1);
 		    double r2=respiration(0,1);
 		    double sum=0;
-		    double socn=0;
-		    for (int i=0;i<N+1;i++)
+		    for (int i=0;i<N;i++)
 		    {
 			double lsum=dL*b_U[i];
 			for (int j=0;j<4;j++)
 			    if (j!=compound_id)
 				lsum+=dL*Css[j]->b_U[i];
-			sum+=lsum;
-			if (i==N) socn=lsum/dL;
+			if (i*dL<=summing_depth) sum+=lsum;
 			if ((i%zoutstep)==0) fprintf(soc_out,"%g ",lsum/dL);
 		    }
 		    fprintf(soc_out,"\n");
@@ -1638,14 +1751,6 @@ public:
 		    fprintf(ch4_out,"\n");
 		    // balance
 		    double If=0,R0f=0,R1f=0,Of=0;
-		    if (T!=fTs[fTs.size()-1])
-		    {
-			Is.push_back(pr_SoC/pr_corr);
-			R0s.push_back(r2/pr_corr);
-			R1s.push_back(r1/pr_corr);
-			Os.push_back((testing_mode==3)?Hs->b_V[N]*socn/pr_corr:0.0);
-			fTs.push_back(T);
-		    }
 		    if (prev_out==0)
 			balance=sum0=sum;
 		    else
@@ -1663,6 +1768,7 @@ public:
 			}
 			balance=sum0+If-R0f-R1f-Of;
 		    }
+		    printf("SOC %g balance %g R %g OF %g\n",sum,balance,r1+r2,Os[Os.size()-1]);
 		    fprintf(out,"CO2 respiration - %g CH4 respiration - %g Balance %g sumSOC %g sumSoCbalance %g sumI %g sumRC02 %g sumRCH4 %g sumOut %g",r1,r2,pr_SoC-r1-r2,sum,balance,If,R1f,R0f,Of);
 	        }
 		if (testing_mode==1)
@@ -1721,7 +1827,7 @@ int main(int argc,char **argv)
 	double _ie=5;
 	double _id=0.7;
 	double _g=0.4;
-	double _ox=0.25;
+	double _ox=0.75;
 	double _ox_tau=0.0;
 	double C0[4]={1,2,3,4};
 	// reading basic parameters
@@ -1785,6 +1891,13 @@ int main(int argc,char **argv)
 		    ls_mult=atof(argv[i+1]);
 		if (strstr(argv[i],"max_tau")!=NULL) // in seconds
 		    max_tau=atof(argv[i+1]);
+		// other parameters
+		if (strstr(argv[i],"soc_inputs_divisor")!=NULL)
+		    soc_inputs_divisor=atof(argv[i+1]);
+		if (strstr(argv[i],"summing_depth")!=NULL)
+		    summing_depth=atof(argv[i+1]);
+		if (strstr(argv[i],"boundary_v")!=NULL)
+		    boundary_v=atoi(argv[i+1]);
 	}
 	printf("Grid size - %d, Tend %g Tsave %g \n",N,Tm,Om);
 	// creating solvers

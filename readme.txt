@@ -35,12 +35,15 @@ z_rothC [<parameter name> <parameter value>]... - solver for in-depth fractional
 	"gamma" - the coefficient of SOC inputs allocation between DPM and RPM pools;
 	"C0{0,1,2,3}" - initial value of concentrations for 4 SOC pools;
 	"H0" - H0+z is the initial value of water head distribution in iteration process used to determine steady-state solution of Richards equation;
+	"soc_inputs_divisor" - a constant, on which SOC inputs are divided during the simulation;
     Simulation parameters:
 	"Tm" - ending time in days;
 	"NB" - number of cells in a finite-difference grid;
 	"LB" - domain depth in meters;
 	"testing" - mode 1 - solves artificially constructed testing problem, mode 2 - solves advection-diffusion-reaction equations for SOC components without advection term;
 	"fr_eps" - accuracy threshold for fixed memory computation of fractional derivatives;
+	"summing_depth" - depth, m, down to which output variables are integrated;
+	"boundary_v" - first-order (1) or second-order (2) approximation of flow velocity and its derivative in boundary points;
     Output parameters:
 	"Om" - output time interval in days;
 	"Zoutstep" - values in cells i*Zoutstep, i=0,...,  will be written in output files;
@@ -61,7 +64,7 @@ z_rothC [<parameter name> <parameter value>]... - solver for in-depth fractional
 	out_C[0,1,2,3].txt - results for SOC compounds dynamic:
 	    t(days) <moment of time in days> tau(seconds) <the value of time step length in seconds> SoC input <the total SOC inputs amount, kg/m^2/s> C[{0,1,2,3}]: <list of SOC compound concentration values, kg/m^3, in grid cells (values of depth z in the first row)>;
 	    The file out_C3.txt contains in each row additional columns with the values of the following aggregate indicators:
-	     CO2 respiration - <moment CO2 respiration from soil column, kg/m^2/s^q> CH4 respiration - <moment CH4 respiration from soil column, kg/m^2/s^q> Balance <moment SOC balance in soil column, kg/m^2/s^q> sumSOC <total simulated SOC content in soil column, kg/m^2> sumSoCbalance <total SOC content according to balance equation, kg/m^2> sumI <total SOC inputs up to the current moment of time, kg/m^2> sumRC02 <total CO2 respiration up to the current moment of time, kg/m^2> sumRCH4 <total CH4 respiration up to the current moment of time, kg/m^2> sumOut <total SOC compounds outflow through the bottom boundary up to the current moment of time, kg/m^2>;
+	     CO2 respiration - <moment CO2 respiration from soil column down to summing depth, kg/m^2/s^q> CH4 respiration - <moment CH4 respiration from soil column down to summing depth, kg/m^2/s^q> Balance <moment SOC balance in soil column down to summing depth, kg/m^2/s^q> sumSOC <total (down to summing depth) simulated SOC content in soil column down to summing depth, kg/m^2> sumSoCbalance <total (down to summing depth) SOC content according to balance equation, kg/m^2> sumI <total (down to summing depth) SOC inputs up to the current moment of time, kg/m^2> sumRC02 <total (down to summing depth) CO2 respiration up to the current moment of time, kg/m^2> sumRCH4 <total (down to summing depth) CH4 respiration up to the current moment of time, kg/m^2> sumOut <total SOC compounds outflow through the bottom boundary (summing depth) up to the current moment of time, kg/m^2>;
 	out_{V,co2,ch4,rho,soc}.txt - water movement velocity, m/s (V); CO2 respiration, kg/m^3/s^q (co2); CH4 respiration, kg/m^3/s^q (ch4); respiration rate function (rho); total SOC content, kg/m^3 (soc):
 	    t(days) <moment of time in days> {V,co2_respiration,ch4_respiration,rho,soc}: <list of values in grid cells (values of depth z in the first row)>;
 
